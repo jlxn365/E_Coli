@@ -111,9 +111,17 @@ class LGBMChiSelectClassifier(BaseEstimator, ClassifierMixin):
 # 3) XGBoost: gain importance -> top-K features -> average of several seeds
 # ---------------------------------------------------------------------------
 class XGBSeedEnsemble(BaseEstimator, ClassifierMixin):
-    def __init__(self, params=None, num_boost_round=334, k_final=10_000, seeds=None):
+    def __init__(
+        self,
+        params=None,
+        num_boost_round=334,
+        k_chi2=100_000,
+        k_final=10_000,
+        seeds=None,
+    ):
         self.params = params
         self.num_boost_round = num_boost_round
+        self.k_chi2 = k_chi2
         self.k_final = k_final
         self.seeds = seeds
 
@@ -122,18 +130,24 @@ class XGBSeedEnsemble(BaseEstimator, ClassifierMixin):
         self.classes_ = np.unique(y)
         params = {"objective": "binary:logistic", **(self.params or {})}
 
-        # 1) importance of every feature (gain)
+        self.chi2_selector_ = SelectKBest(
+            chi2, k=min(self.k_chi2, X.shape[1])
+        ).fit(X, y)
+        X_chi2 = self.chi2_selector_.transform(X)
+        chi2_idx = self.chi2_selector_.get_support(indices=True)
+
         bst = xgb.train(
-            params, xgb.DMatrix(X, label=y), num_boost_round=self.num_boost_round
+            params, xgb.DMatrix(X_chi2, label=y), num_boost_round=self.num_boost_round
         )
         importance_dict = bst.get_score(importance_type="gain")
-        importance_scores = np.zeros(X.shape[1], dtype=np.float32)
+        importance_scores = np.zeros(X_chi2.shape[1], dtype=np.float32)
         for f, score in importance_dict.items():
             importance_scores[int(f[1:])] = score  # remove "f"
-        ranked_idx = np.argsort(-importance_scores)
-        self.feat_idx_ = ranked_idx[: min(self.k_final, X.shape[1])]
+        ranked_local_idx = np.argsort(-importance_scores)
+        top_local = ranked_local_idx[: min(self.k_final, X_chi2.shape[1])]
 
-        # 2) several seeds on the selected features
+        self.feat_idx_ = chi2_idx[top_local]
+
         dtrain = xgb.DMatrix(X[:, self.feat_idx_], label=y)
         self.models_ = []
         for s in self.seeds or [0, 1, 2, 3, 4]:
