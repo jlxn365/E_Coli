@@ -108,7 +108,7 @@ class LGBMChiSelectClassifier(BaseEstimator, ClassifierMixin):
 
 
 # ---------------------------------------------------------------------------
-# 3) XGBoost: gain importance -> top-K features -> average of several seeds
+# 3) XGBoost: chi2 band (skip top) -> gain importance -> top-K features -> average of several seeds
 # ---------------------------------------------------------------------------
 class XGBSeedEnsemble(BaseEstimator, ClassifierMixin):
     def __init__(
